@@ -1,0 +1,276 @@
+﻿@page "/subscriptions"
+@attribute [Authorize(Roles = "Admin")]
+@using Microsoft.AspNetCore.Authorization
+@using TestQRApp.Models.DTOs
+@using TestQRApp.Services.interfaces
+@rendermode InteractiveServer
+
+@inject ISubscriptionTypeService SubService
+@inject IJSRuntime JS
+
+<PageTitle>FitPass — Управление Тарифами</PageTitle>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+<div class="container-fluid py-3">
+    
+    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center mb-4 pb-2 border-bottom gap-2">
+        <div>
+            <h2 class="fw-bold text-dark mb-0">Управление Тарифами</h2>
+            <p class="text-muted mb-0">Настройка абонементов, цен и длительности обучения</p>
+        </div>
+        <button class="btn btn-success shadow-sm py-2 px-4 fw-bold" @onclick="OpenAddModal">
+            <i class="bi bi-patch-plus-fill me-2"></i> Создать тариф
+        </button>
+    </div>
+
+    <div class="card shadow-sm border-0 rounded-3">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th class="ps-4">Название тарифа</th>
+                        <th>Длительность</th>
+                        <th>Тип доступа</th>
+                        <th>Цена</th>
+                        <th class="text-end pe-4">Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (subTypes == null)
+                    {
+                        <tr>
+                            <td colspan="5" class="text-center py-5">
+                                <div class="spinner-border text-success" role="status"></div>
+                            </td>
+                        </tr>
+                    }
+                    else if (!subTypes.Any())
+                    {
+                        <tr>
+                            <td colspan="5" class="text-center py-5 text-muted">
+                                <i class="bi bi-card-list display-4 d-block mb-2"></i>
+                                Тарифы еще не созданы.
+                            </td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var sub in subTypes)
+                        {
+                            <tr>
+                                <td class="ps-4">
+                                    <div class="fw-bold text-dark fs-5">@sub.Name</div>
+                                </td>
+                                <td>
+                                    <span class="text-secondary">
+                                        <i class="bi bi-calendar3 me-1"></i> @sub.DurationInDays дней
+                                    </span>
+                                </td>
+                                <td>
+                                    @if (sub.IsUnlimited)
+                                    {
+                                        <span class="badge bg-purple-subtle text-purple border border-purple-subtle rounded-pill px-3">
+                                            <i class="bi bi-infinity me-1"></i> Безлимит
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-3">
+                                            <i class="bi bi-123 me-1"></i> 30 визитов
+                                        </span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="fw-bold text-dark">@sub.Price.ToString("N0") TJS</span>
+                                </td>
+                                <td class="text-end pe-4">
+                                    <div class="btn-group shadow-sm">
+                                        <button class="btn btn-sm btn-outline-warning" @onclick="() => OpenEditModal(sub)" title="Редактировать">
+                                            <i class="bi bi-pencil-square"></i>
+                                        </button>
+                                        <button class="btn btn-sm btn-outline-danger" @onclick="() => OpenDeleteModal(sub)" title="Удалить">
+                                            <i class="bi bi-trash3"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@if (showModal)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5); z-index: 1050;" role="dialog">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header @(modalType == "delete" ? "bg-danger" : "bg-dark") text-white">
+                    <h5 class="modal-title fw-bold">@modalTitle</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    @if (modalType == "delete")
+                    {
+                        <div class="text-center">
+                            <i class="bi bi-exclamation-triangle text-danger display-4"></i>
+                            <p class="fs-5 mt-3">Удалить тариф <strong>@selectedSub?.Name</strong>?</p>
+                            <p class="small text-muted">Это не удалит уже купленные абонементы у клиентов, но новые клиенты не смогут его выбрать.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mb-3">
+                            <label class="form-label small fw-bold">Название тарифа *</label>
+                            <input type="text" class="form-control" @bind="inputModel.Name" placeholder="Например: Месяц Безлимит" />
+                        </div>
+                        <div class="row mb-3">
+                            <div class="col-6">
+                                <label class="form-label small fw-bold">Длительность (дни) *</label>
+                                <input type="number" class="form-control" @bind="inputModel.DurationInDays" />
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small fw-bold">Цена (TJS) *</label>
+                                <input type="number" class="form-control" @bind="inputModel.Price" />
+                            </div>
+                        </div>
+                        <div class="form-check form-switch p-3 bg-light rounded border">
+                            <input class="form-check-input ms-0 me-2" type="checkbox" id="unlimSwitch" @bind="inputModel.IsUnlimited">
+                            <label class="form-check-label fw-bold" for="unlimSwitch">Безлимитное посещение</label>
+                            <small class="d-block text-muted">Если выключено, будет установлено 30 посещений по умолчанию.</small>
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="alert alert-danger p-2 small mt-3 mb-0">@errorMessage</div>
+                    }
+                </div>
+                <div class="modal-footer bg-light">
+                    <button class="btn btn-secondary btn-sm px-3" @onclick="CloseModal">Отмена</button>
+                    @if (modalType == "delete")
+                    {
+                        <button class="btn btn-danger btn-sm px-3 fw-bold" @onclick="ConfirmDelete">Да, удалить</button>
+                    }
+                    else
+                    {
+                        <button class="btn btn-success btn-sm px-4 fw-bold" @onclick="SaveSub">Сохранить</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<style>
+    .text-purple { color: #6f42c1; }
+    .bg-purple-subtle { background-color: #ebe5f7; }
+    .border-purple-subtle { border-color: #d1c4e9 !important; }
+</style>
+
+@code {
+    private List<SubscriptionTypeDto>? subTypes;
+    
+    // Состояния модалки
+    private bool showModal = false;
+    private string modalTitle = "";
+    private string modalType = "add"; // add, edit, delete
+    private string errorMessage = "";
+    
+    private SubscriptionTypeDto? selectedSub;
+    private SubFormModel inputModel = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        subTypes = await SubService.GetAllTypesAsync();
+    }
+
+    private void OpenAddModal()
+    {
+        modalType = "add";
+        modalTitle = "Новый тарифный план";
+        inputModel = new SubFormModel();
+        errorMessage = "";
+        showModal = true;
+    }
+
+    private void OpenEditModal(SubscriptionTypeDto sub)
+    {
+        selectedSub = sub;
+        modalType = "edit";
+        modalTitle = "Редактирование тарифа";
+        inputModel = new SubFormModel 
+        { 
+            Name = sub.Name, 
+            DurationInDays = sub.DurationInDays, 
+            Price = sub.Price, 
+            IsUnlimited = sub.IsUnlimited 
+        };
+        errorMessage = "";
+        showModal = true;
+    }
+
+    private void OpenDeleteModal(SubscriptionTypeDto sub)
+    {
+        selectedSub = sub;
+        modalType = "delete";
+        modalTitle = "Удаление тарифа";
+        showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        showModal = false;
+        selectedSub = null;
+    }
+
+    private async Task SaveSub()
+    {
+        if (string.IsNullOrWhiteSpace(inputModel.Name) || inputModel.Price <= 0 || inputModel.DurationInDays <= 0)
+        {
+            errorMessage = "Пожалуйста, заполните все поля корректно.";
+            return;
+        }
+
+        var dto = new CreateSubscriptionTypeDto(inputModel.Name, inputModel.DurationInDays, inputModel.Price, inputModel.IsUnlimited);
+
+        if (modalType == "add")
+        {
+            await SubService.CreateTypeAsync(dto);
+        }
+        else if (modalType == "edit" && selectedSub != null)
+        {
+            await SubService.UpdateTypeAsync(selectedSub.Id, dto);
+        }
+
+        CloseModal();
+        await LoadData();
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (selectedSub != null)
+        {
+            await SubService.DeleteTypeAsync(selectedSub.Id);
+        }
+        CloseModal();
+        await LoadData();
+    }
+
+    // Вспомогательная модель для формы
+    private class SubFormModel
+    {
+        public string Name { get; set; } = "";
+        public int DurationInDays { get; set; } = 30;
+        public decimal Price { get; set; } = 0;
+        public bool IsUnlimited { get; set; } = true;
+    }
+}

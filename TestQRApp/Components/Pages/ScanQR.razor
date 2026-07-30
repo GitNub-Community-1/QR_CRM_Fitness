@@ -1,0 +1,348 @@
+﻿@page "/scan"
+@attribute [Authorize(Roles = "Admin, Moderator")]
+@using Microsoft.AspNetCore.Authorization
+@using TestQRApp.Models.DTOs
+@using TestQRApp.Services.interfaces
+@implements IAsyncDisposable
+@rendermode InteractiveServer
+
+@inject IClientManagerService ClientService
+@inject IJSRuntime JS
+
+<PageTitle>FitPass — Сканер QR</PageTitle>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+<div class="container py-4" style="max-width: 800px;">
+    
+    <div class="text-center mb-4">
+        <h2 class="fw-bold text-dark mb-1">
+            <i class="bi bi-qr-code-scan text-success me-2"></i>Контроль Входа
+        </h2>
+        <p class="text-muted">Используйте камеру, загрузку файла или USB-сканер</p>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4 rounded-3 text-center">
+        <div class="card-body p-4">
+            <div class="d-flex flex-wrap justify-content-center gap-2 mb-3">
+                @if (!isCameraActive)
+                {
+                    <button class="btn btn-success fw-bold px-4 py-2 shadow-sm" @onclick="StartCamera">
+                        <i class="bi bi-camera-fill me-2"></i> Включить камеру
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-outline-danger fw-bold px-4 py-2" @onclick="StopCamera">
+                        <i class="bi bi-camera-video-off-fill me-2"></i> Выключить камеру
+                    </button>
+                }
+
+                <label class="btn btn-warning fw-bold px-4 py-2 shadow-sm mb-0 style-pointer">
+                    <i class="bi bi-file-earmark-image-fill me-2"></i> Загрузить фото QR
+                    <InputFile OnChange="HandleFileSelected" accept="image/*" style="display: none;" />
+                </label>
+            </div>
+
+            <p class="small text-muted mb-0">💡 Вы можете загрузить скриншот или фото QR-кода прямо с ПК для тестирования!</p>
+
+            <div id="qr-reader" class="mx-auto rounded-3 overflow-hidden border shadow-sm mt-3" style="max-width: 500px; display: @(isCameraActive ? "block" : "none");"></div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4 rounded-3">
+        <div class="card-body p-3">
+            <label class="form-label fw-bold text-secondary small text-uppercase">Ручной ввод / USB-Сканер</label>
+            <div class="input-group">
+                <span class="input-group-text bg-white border-end-0">
+                    <i class="bi bi-search text-muted"></i>
+                </span>
+                <input type="text" 
+                       class="form-control border-start-0 ps-0" 
+                       placeholder="Наведите USB-сканер сюда или вставьте ID..." 
+                       @bind="searchQuery" 
+                       @bind:event="oninput"
+                       @keyup="HandleKeyUp" />
+                <button class="btn btn-primary fw-bold px-4" @onclick="() => ProcessQrCode(searchQuery)">
+                    Проверить
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-success" style="width: 3rem; height: 3rem;" role="status"></div>
+            <p class="text-muted mt-3">Проверка абонемента...</p>
+        </div>
+    }
+
+    @if (scannedClient != null)
+    {
+        <div class="card shadow-lg border-0 rounded-4 overflow-hidden mb-4">
+            <div class="p-3 text-center fw-bold text-white fs-5 @(hasActiveSubscription ? "bg-success" : "bg-danger")">
+                @if (hasActiveSubscription)
+                {
+                    <i class="bi bi-check-circle-fill me-2"></i><span>ПРОХОД РАЗРЕШЕН</span>
+                }
+                else
+                {
+                    <i class="bi bi-x-circle-fill me-2"></i><span>ДОСТУП ЗАПРЕЩЕН / НЕТ АБОНЕМЕНТА</span>
+                }
+            </div>
+
+            <div class="card-body p-4 text-center">
+                <div class="avatar-circle bg-light text-dark fw-bold display-6 mx-auto mb-3 d-flex align-items-center justify-content-center rounded-circle border" style="width: 90px; height: 90px;">
+                    @scannedClient.FirstName[0]@scannedClient.LastName[0]
+                </div>
+
+                <h3 class="fw-bold text-dark mb-1">@scannedClient.LastName @scannedClient.FirstName</h3>
+                <p class="text-muted mb-3"><i class="bi bi-telephone me-1"></i>@scannedClient.PhoneNumber</p>
+
+                <div class="row g-3 my-2 text-start">
+                    <div class="col-6">
+                        <div class="p-3 bg-light rounded-3 border">
+                            <span class="text-muted small d-block mb-1">Абонемент:</span>
+                            <span class="fw-bold text-dark fs-6">
+                                @(scannedClient.SubscriptionName ?? "Отсутствует")
+                            </span>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div class="p-3 bg-light rounded-3 border">
+                            <span class="text-muted small d-block mb-1">Остаток визитов / Статус:</span>
+                            <span class="fw-bold text-dark fs-6">
+                                @(scannedClient.RemainingVisitsStatus ?? "0")
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                @if (hasActiveSubscription)
+                {
+                    <button class="btn btn-lg btn-success w-100 fw-bold py-3 mt-3 shadow-sm" @onclick="ConfirmEntry">
+                        <i class="bi bi-door-open-fill me-2"></i> Отметить визит (Списать 1 занятие)
+                    </button>
+                }
+                else
+                {
+                    <button class="btn btn-lg btn-outline-secondary w-100 fw-bold py-2 mt-3" @onclick="ResetScan">
+                        Закрыть
+                    </button>
+                }
+            </div>
+        </div>
+    }
+    else if (errorMessage != null)
+    {
+        <div class="alert alert-danger text-center p-4 rounded-3 shadow-sm">
+            <i class="bi bi-exclamation-triangle-fill display-5 d-block mb-2"></i>
+            <h5 class="fw-bold">Ошибка сканирования</h5>
+            <p class="mb-0">@errorMessage</p>
+            <button class="btn btn-sm btn-outline-danger mt-3" @onclick="ResetScan">Попробовать снова</button>
+        </div>
+    }
+
+</div>
+
+<style>
+    .style-pointer { cursor: pointer; }
+</style>
+
+@code {
+    private string searchQuery = "";
+    private bool isLoading = false;
+    private bool isCameraActive = false;
+    private string? errorMessage = null;
+
+    private ClientDetailDto? scannedClient;
+    private bool hasActiveSubscription = false;
+
+    private DotNetObjectReference<ScanQR>? dotNetHelper;
+
+    protected override void OnInitialized()
+    {
+        dotNetHelper = DotNetObjectReference.Create(this);
+    }
+
+    private async Task StartCamera()
+    {
+        isCameraActive = true;
+        StateHasChanged();
+
+        await Task.Delay(300);
+        await JS.InvokeVoidAsync("startQrScanner", dotNetHelper);
+    }
+
+    private async Task StopCamera()
+    {
+        isCameraActive = false;
+        await JS.InvokeVoidAsync("stopQrScanner");
+        StateHasChanged();
+    }
+
+    // Обработка загрузки файла-картинки с ПК
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        isLoading = true;
+        errorMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            // Считываем файл в Base64
+            using var stream = file.OpenReadStream(maxAllowedSize: 1024 * 1024 * 10); // до 10MB
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            var base64 = Convert.ToBase64String(ms.ToArray());
+            var dataUrl = $"data:{file.ContentType};base64,{base64}";
+
+            // Передаем изображение в JS для распознавания QR
+            await JS.InvokeVoidAsync("scanQrFromFile", dataUrl, dotNetHelper);
+        }
+        catch (Exception ex)
+        {
+            isLoading = false;
+            errorMessage = "Не удалось прочитать файл: " + ex.Message;
+            StateHasChanged();
+        }
+    }
+
+    [JSInvokable]
+    public async Task OnQrCodeScanned(string qrCodeResult)
+    {
+        await StopCamera();
+        await ProcessQrCode(qrCodeResult);
+    }
+
+    [JSInvokable]
+    public void OnQrCodeError(string errorMsg)
+    {
+        isLoading = false;
+        errorMessage = "QR-код на картинке не обнаружен. Попробуйте другой скриншот.";
+        StateHasChanged();
+    }
+
+    private async Task HandleKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await ProcessQrCode(searchQuery);
+        }
+    }
+
+    private async Task ProcessQrCode(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return;
+
+        isLoading = true;
+        errorMessage = null;
+        scannedClient = null;
+
+        try
+        {
+            if (Guid.TryParse(code.Trim(), out Guid clientId))
+            {
+                scannedClient = await ClientService.GetClientDetailAsync(clientId);
+                
+                if (scannedClient != null)
+                {
+                    hasActiveSubscription = !string.IsNullOrEmpty(scannedClient.SubscriptionName);
+                }
+                else
+                {
+                    errorMessage = "Клиент с таким QR-кодом не найден в базе данных.";
+                }
+            }
+            else
+            {
+                errorMessage = "Некорректный QR-код. Код должен быть уникальным ID клиента.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "Ошибка при загрузке данных: " + ex.Message;
+        }
+
+        isLoading = false;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmEntry()
+    {
+        if (scannedClient == null) return;
+
+        await JS.InvokeVoidAsync("alert", $"Визит клиента {scannedClient.FirstName} зарегистрирован!");
+        ResetScan();
+    }
+
+    private void ResetScan()
+    {
+        searchQuery = "";
+        scannedClient = null;
+        errorMessage = null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (isCameraActive)
+        {
+            await StopCamera();
+        }
+        dotNetHelper?.Dispose();
+    }
+}
+
+<script>
+    let html5QrCode = null;
+
+    window.startQrScanner = function (dotNetHelper) {
+        if (!html5QrCode) {
+            html5QrCode = new Html5Qrcode("qr-reader");
+        }
+
+        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+        html5QrCode.start(
+            { facingMode: "environment" },
+            config,
+            (decodedText, decodedResult) => {
+                dotNetHelper.invokeMethodAsync('OnQrCodeScanned', decodedText);
+            },
+            (errorMessage) => {}
+        ).catch((err) => {
+            alert("Не удалось запустить камеру.");
+        });
+    };
+
+    window.stopQrScanner = function () {
+        if (html5QrCode && html5QrCode.isScanning) {
+            html5QrCode.stop();
+        }
+    };
+
+    // Метод для сканирования загруженного файла-картинки
+    window.scanQrFromFile = function (dataUrl, dotNetHelper) {
+        if (!html5QrCode) {
+            html5QrCode = new Html5Qrcode("qr-reader");
+        }
+
+        // Преобразуем Base64 в Blob/File объект
+        fetch(dataUrl)
+            .then(res => res.blob())
+            .then(blob => {
+                const file = new File([blob], "qr_code_image.png", { type: blob.type });
+                return html5QrCode.scanFile(file, true);
+            })
+            .then(decodedText => {
+                dotNetHelper.invokeMethodAsync('OnQrCodeScanned', decodedText);
+            })
+            .catch(err => {
+                dotNetHelper.invokeMethodAsync('OnQrCodeError', err);
+            });
+    };
+</script>

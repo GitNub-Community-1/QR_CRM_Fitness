@@ -1,0 +1,76 @@
+﻿@using Microsoft.AspNetCore.Components.Authorization
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <base href="/"/>
+    <link rel="stylesheet" href="@Assets["lib/bootstrap/dist/css/bootstrap.min.css"]"/>
+    <link rel="stylesheet" href="@Assets["app.css"]"/>
+    <link rel="stylesheet" href="@Assets["TestQRApp.styles.css"]"/>
+    <ImportMap/>
+    <link rel="icon" type="image/png" href="favicon.png"/>
+    <HeadOutlet @rendermode="InteractiveServer" />
+</head>
+
+<body>
+<CascadingAuthenticationState>
+    <Routes @rendermode="InteractiveServer" />
+</CascadingAuthenticationState>
+
+<script src="_framework/blazor.web.js"></script>
+
+<script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+
+<script>
+    let html5QrCode = null;
+
+    window.startQrScanner = function (dotNetHelper) {
+        if (!html5QrCode) {
+            html5QrCode = new Html5Qrcode("qr-reader");
+        }
+
+        const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+        html5QrCode.start(
+            { facingMode: "environment" },
+            config,
+            (decodedText) => {
+                dotNetHelper.invokeMethodAsync('OnQrCodeScanned', decodedText);
+            },
+            (errorMessage) => {}
+        ).catch((err) => {
+            alert("Не удалось запустить камеру.");
+        });
+    };
+
+    window.stopQrScanner = function () {
+        if (html5QrCode && html5QrCode.isScanning) {
+            html5QrCode.stop();
+        }
+    };
+
+    window.scanQrFromFile = function (dataUrl, dotNetHelper) {
+        if (!html5QrCode) {
+            html5QrCode = new Html5Qrcode("qr-reader");
+        }
+
+        fetch(dataUrl)
+            .then(res => res.blob())
+            .then(blob => {
+                const file = new File([blob], "qr_code_image.png", { type: blob.type });
+                return html5QrCode.scanFile(file, true);
+            })
+            .then(decodedText => {
+                dotNetHelper.invokeMethodAsync('OnQrCodeScanned', decodedText);
+            })
+            .catch(err => {
+                dotNetHelper.invokeMethodAsync('OnQrCodeError', err ? err.toString() : "Error");
+            });
+    };
+</script>
+
+</body>
+
+</html>

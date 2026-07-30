@@ -1,0 +1,234 @@
+﻿@page "/trainers-management"
+@attribute [Authorize(Roles = "Admin, Moderator")]
+@inject ITrainerService TrainerService
+@using Microsoft.AspNetCore.Authorization
+@using TestQRApp.Models.DTOs
+@using TestQRApp.Services.interfaces
+@rendermode InteractiveServer
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+    <div>
+        <h2 class="fw-bold text-dark">Управление Тренерами</h2>
+        <p class="text-muted mb-0">Список учителей и наставников вашего фитнес-центра</p>
+    </div>
+    <button class="btn btn-success shadow-sm" @onclick="OpenAddModal">
+        <i class="bi bi-person-plus-fill me-2"></i>Добавить тренера
+    </button>
+</div>
+
+<div class="card shadow-sm border-0 rounded-3">
+    <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+            <thead class="table-dark">
+                <tr>
+                    <th class="ps-4">ФИО Тренера</th>
+                    <th>Специализация</th>
+                    <th class="text-end pe-4">Действия</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Trainers == null)
+                {
+                    <tr>
+                        <td colspan="3" class="text-center py-4">
+                            <div class="spinner-border text-success" role="status"></div>
+                        </td>
+                    </tr>
+                }
+                else if (!Trainers.Any())
+                {
+                    <tr>
+                        <td colspan="3" class="text-center py-5 text-muted">Список тренеров пока пуст. Добавьте первого!</td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var trainer in Trainers)
+                    {
+                        <tr>
+                            <td class="fw-bold ps-4 text-dark">@trainer.FullName</td>
+                            <td><span class="badge bg-secondary px-2.5 py-1.5">@trainer.Specialization</span></td>
+                            <td class="text-end pe-4">
+                                <div class="btn-group shadow-sm">
+                                    <button class="btn btn-sm btn-outline-primary" @onclick="() => OpenInfoModal(trainer)" title="Инфо">
+                                        <i class="bi bi-info-circle"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-warning" @onclick="() => OpenEditModal(trainer)" title="Изменить">
+                                        <i class="bi bi-pencil"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger" @onclick="() => OpenDeleteModal(trainer)" title="Удалить">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+@if (ShowModal)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);" role="dialog">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title fw-bold">@ModalTitle</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    @if (ModalType == "delete")
+                    {
+                        <p class="fs-5 text-center">Вы уверены, что хотите удалить тренера <strong class="text-danger">@SelectedTrainer?.FullName</strong>?</p>
+                    }
+                    else if (ModalType == "info")
+                    {
+                        <div class="mb-3">
+                            <label class="small text-muted d-block">Уникальный ID в базе данных</label>
+                            <span class="fw-mono text-break text-dark">@SelectedTrainer?.Id</span>
+                        </div>
+                        <div class="mb-3">
+                            <label class="small text-muted d-block">Полное Имя</label>
+                            <span class="fs-5 fw-bold text-dark">@SelectedTrainer?.FullName</span>
+                        </div>
+                        <div class="mb-1">
+                            <label class="small text-muted d-block">Специализация / Направление</label>
+                            <span class="badge bg-success fs-6 px-3 py-2">@SelectedTrainer?.Specialization</span>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold">Имя тренера</label>
+                            <input type="text" class="form-control" @bind="InputModel.FirstName" placeholder="Имя" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label small fw-semibold">Фамилия тренера</label>
+                            <input type="text" class="form-control" @bind="InputModel.LastName" placeholder="Фамилия" />
+                        </div>
+                        <div class="mb-1">
+                            <label class="form-label small fw-semibold">Специализация</label>
+                            <input type="text" class="form-control" @bind="InputModel.Specialization" placeholder="Например: Йога, Бокс" />
+                        </div>
+                    }
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Отмена</button>
+                    @if (ModalType == "delete")
+                    {
+                        <button type="button" class="btn btn-danger" @onclick="ConfirmDelete">Удалить из системы</button>
+                    }
+                    else if (ModalType != "info")
+                    {
+                        <button type="button" class="btn btn-success" @onclick="SaveTrainer">Сохранить</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<TrainerDto>? Trainers { get; set; }
+    private bool ShowModal { get; set; }
+    private string ModalTitle { get; set; } = "";
+    private string ModalType { get; set; } = ""; 
+    private TrainerDto? SelectedTrainer { get; set; }
+    
+    // Используем обычный класс для биндинга формы в Blazor, чтобы обойти init-only свойства
+    private TrainerFormModel InputModel { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadTrainers();
+    }
+
+    private async Task LoadTrainers()
+    {
+        Trainers = await TrainerService.GetAllTrainersAsync();
+    }
+
+    private void OpenAddModal()
+    {
+        ModalType = "add";
+        ModalTitle = "Добавление нового тренера";
+        InputModel = new TrainerFormModel();
+        ShowModal = true;
+    }
+
+    private void OpenInfoModal(TrainerDto trainer)
+    {
+        ModalType = "info";
+        ModalTitle = "Карточка тренера";
+        SelectedTrainer = trainer;
+        ShowModal = true;
+    }
+
+    private void OpenEditModal(TrainerDto trainer)
+    {
+        ModalType = "edit";
+        ModalTitle = "Редактирование данных";
+        SelectedTrainer = trainer;
+        
+        var parts = trainer.FullName.Split(' ');
+        InputModel = new TrainerFormModel
+        {
+            LastName = parts.Length > 0 ? parts[0] : "",
+            FirstName = parts.Length > 1 ? parts[1] : "",
+            Specialization = trainer.Specialization
+        };
+        ShowModal = true;
+    }
+
+    private void OpenDeleteModal(TrainerDto trainer)
+    {
+        ModalType = "delete";
+        ModalTitle = "Подтверждение удаления";
+        SelectedTrainer = trainer;
+        ShowModal = true;
+    }
+
+    private void CloseModal()
+    {
+        ShowModal = false;
+        SelectedTrainer = null;
+    }
+
+    private async Task SaveTrainer()
+    {
+        if (string.IsNullOrWhiteSpace(InputModel.FirstName) || string.IsNullOrWhiteSpace(InputModel.LastName)) return;
+
+        var dto = new CreateTrainerDto(InputModel.FirstName, InputModel.LastName, InputModel.Specialization);
+
+        if (ModalType == "add")
+        {
+            await TrainerService.CreateTrainerAsync(dto);
+        }
+        else if (ModalType == "edit" && SelectedTrainer != null)
+        {
+            await TrainerService.UpdateTrainerAsync(SelectedTrainer.Id, dto);
+        }
+
+        CloseModal();
+        await LoadTrainers();
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (SelectedTrainer != null)
+        {
+            await TrainerService.DeleteTrainerAsync(SelectedTrainer.Id);
+        }
+        CloseModal();
+        await LoadTrainers();
+    }
+
+    private class TrainerFormModel
+    {
+        public string FirstName { get; set; } = "";
+        public string LastName { get; set; } = "";
+        public string Specialization { get; set; } = "";
+    }
+}

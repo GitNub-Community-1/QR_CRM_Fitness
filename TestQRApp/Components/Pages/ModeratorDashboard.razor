@@ -1,0 +1,522 @@
+﻿@page "/trainers"
+@attribute [Authorize(Roles = "Admin, Moderator")]
+@using Microsoft.AspNetCore.Authorization
+@using TestQRApp.Models.DTOs
+@using TestQRApp.Models.Enums
+@using TestQRApp.Services.interfaces
+@implements IDisposable
+@rendermode InteractiveServer
+@inject IAnalytickcService AnalyticsService
+@inject IClientManagerService ClientService
+@inject ITrainerService TrainerService
+@inject ISubscriptionTypeService SubscriptionService
+@inject IAuthService AuthService
+@inject IJSRuntime JS
+
+<PageTitle>FitPass — Дашборд Модератора</PageTitle>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+<div class="container-fluid py-3">
+
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm bg-primary text-white h-100">
+                <div class="card-body d-flex align-items-center justify-content-between">
+                    <div>
+                        <h6 class="text-uppercase mb-1 opacity-75">Загрузка зала (3ч)</h6>
+                        <h2 class="mb-0 fw-bold">@gymLoad чел.</h2>
+                    </div>
+                    <i class="bi bi-people-fill display-5 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm bg-success text-white h-100">
+                <div class="card-body d-flex align-items-center justify-content-between">
+                    <div>
+                        <h6 class="text-uppercase mb-1 opacity-75">Визитов за сегодня</h6>
+                        <h2 class="mb-0 fw-bold">@todayVisits</h2>
+                    </div>
+                    <i class="bi bi-person-check-fill display-5 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm bg-info text-white h-100">
+                <div class="card-body d-flex align-items-center justify-content-between">
+                    <div>
+                        <h6 class="text-uppercase mb-1 opacity-75">Новых клиентов (месяц)</h6>
+                        <h2 class="mb-0 fw-bold">@monthlyNewClients</h2>
+                    </div>
+                    <i class="bi bi-person-plus-fill display-5 opacity-50"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        
+        <div class="col-lg-8">
+            <div class="card border-0 shadow-sm">
+                <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+                    <h5 class="mb-0 fw-bold text-secondary">
+                        <i class="bi bi-person-lines-fill me-2 text-primary"></i>База клиентов
+                    </h5>
+                    <button class="btn btn-primary btn-sm fw-bold shadow-sm" @onclick="OpenCreateClientModal">
+                        <i class="bi bi-plus-circle me-1"></i> Новый клиент
+                    </button>
+                </div>
+                <div class="card-body">
+                    
+                    <div class="input-group mb-3">
+                        <span class="input-group-text bg-light border-end-0"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control bg-light border-start-0" 
+                               placeholder="Поиск по ФИО, телефону или логину..." 
+                               @bind="searchTerm" @bind:event="oninput" @onkeyup="HandleSearch" />
+                    </div>
+
+                    @if (isLoadingClients)
+                    {
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status"></div>
+                        </div>
+                    }
+                    else if (pagedClients == null || !pagedClients.Items.Any())
+                    {
+                        <div class="text-center py-4 text-muted">Клиенты не найдены.</div>
+                    }
+                    else
+                    {
+                        <div class="table-responsive">
+                            <table class="table table-hover align-middle">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th>ФИО</th>
+                                        <th>Телефон</th>
+                                        <th>Логин</th>
+                                        <th class="text-end">Действия</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var client in pagedClients.Items)
+                                    {
+                                        <tr>
+                                            <td class="fw-bold">@client.FullName</td>
+                                            <td>@client.PhoneNumber</td>
+                                            <td><span class="badge bg-secondary opacity-75">@client.Login</span></td>
+                                            <td class="text-end">
+                                                <button class="btn btn-outline-info btn-sm me-1" 
+                                                        title="Детали" @onclick="() => OpenDetailModal(client.Id)">
+                                                    <i class="bi bi-eye"></i>
+                                                </button>
+                                                <button class="btn btn-outline-success btn-sm me-1" 
+                                                        title="Назначить тариф" @onclick="() => OpenAssignSubModal(client.Id)">
+                                                    <i class="bi bi-card-checklist"></i>
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="d-flex justify-content-between align-items-center mt-3">
+                            <span class="small text-muted">Страница @currentPage из @pagedClients.TotalPages</span>
+                            <div class="btn-group">
+                                <button class="btn btn-outline-secondary btn-sm" 
+                                        disabled="@(currentPage == 1)" 
+                                        @onclick="() => ChangePage(currentPage - 1)">Назад</button>
+                                <button class="btn btn-outline-secondary btn-sm" 
+                                        disabled="@(currentPage >= pagedClients.TotalPages)" 
+                                        @onclick="() => ChangePage(currentPage + 1)">Вперед</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-lg-4">
+            <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-white py-3 d-flex align-items-center justify-content-between">
+                    <h5 class="mb-0 fw-bold text-secondary">
+                        <i class="bi bi-clock-history me-2 text-success"></i>Лента входов
+                    </h5>
+                    <button class="btn btn-light btn-sm" @onclick="RefreshPasses" title="Обновить">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush">
+                        @foreach (var pass in recentPasses)
+                        {
+                            <li class="list-group-item d-flex justify-content-between align-items-start p-3">
+                                <div>
+                                    <div class="fw-bold">@pass.ClientName</div>
+                                    <small class="text-muted d-block">@pass.Note</small>
+                                    <small class="text-muted" style="font-size: 0.75rem;">
+                                        @pass.ScanTime.ToLocalTime().ToString("HH:mm:ss dd.MM.yyyy")
+                                    </small>
+                                </div>
+                                @if (pass.IsSuccess)
+                                {
+                                    <span class="badge bg-success-subtle text-success border border-success-subtle rounded-pill">Успех</span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill">Отказ</span>
+                                }
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+@if (showCreateClientModal)
+{
+    <div class="modal fade show d-block tab-modal" style="background: rgba(0,0,0,0.5);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title fw-bold">Регистрация клиента</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="row g-2">
+                        <div class="col-md-6 mb-2">
+                            <label class="form-label small">Имя *</label>
+                            <input type="text" class="form-control" @bind="newFirstName" />
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="form-label small">Фамилия *</label>
+                            <input type="text" class="form-control" @bind="newLastName" />
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="form-label small">Отчество</label>
+                            <input type="text" class="form-control" @bind="newMiddleName" />
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="form-label small">Возраст *</label>
+                            <input type="number" class="form-control" @bind="newAge" />
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="form-label small">Пол</label>
+                            <select class="form-select" @bind="newGender">
+                                <option value="@Gender.Male">Мужской</option>
+                                <option value="@Gender.Female">Женский</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="form-label small">Телефон *</label>
+                            <input type="text" class="form-control" @bind="newPhoneNumber" placeholder="+992..." />
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="form-label small">Логин *</label>
+                            <input type="text" class="form-control" @bind="newLogin" />
+                        </div>
+                        <div class="col-md-6 mb-2">
+                            <label class="form-label small">Пароль *</label>
+                            <input type="password" class="form-control" @bind="newPassword" />
+                        </div>
+                        <div class="col-12 mb-2">
+                            <label class="form-label small">Персональный тренер</label>
+                            <select class="form-select" @bind="selectedTrainerId">
+                                <option value="">-- Без тренера --</option>
+                                @foreach (var trainer in trainersList)
+                                {
+                                    <option value="@trainer.Id">@trainer.FullName (@trainer.Specialization)</option>
+                                }
+                            </select>
+                        </div>
+                    </div>
+                    @if (!string.IsNullOrEmpty(modalErrorMessage))
+                    {
+                        <div class="alert alert-danger p-2 small mt-2">@modalErrorMessage</div>
+                    }
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-light btn-sm" @onclick="CloseModals">Отмена</button>
+                    <button class="btn btn-primary btn-sm fw-bold" @onclick="SaveNewClient">Зарегистрировать</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showDetailModal && selectedClientDetail != null)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title fw-bold">Карточка клиента</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <h4>@selectedClientDetail.LastName @selectedClientDetail.FirstName</h4>
+                        <span class="badge bg-light text-dark border">Логин: @selectedClientDetail.Login</span>
+                    </div>
+                    <ul class="list-group list-group-flush mb-3 small">
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Телефон:</span>
+                            <span class="fw-bold">@selectedClientDetail.PhoneNumber</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Дата регистрации:</span>
+                            <span>@selectedClientDetail.CreatedAt.ToString("dd.MM.yyyy")</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Абонемент:</span>
+                            <span class="fw-bold text-success">@(selectedClientDetail.SubscriptionName ?? "Отсутствует")</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Статус посещений:</span>
+                            <span>@(selectedClientDetail.RemainingVisitsStatus ?? "-")</span>
+                        </li>
+                        <li class="list-group-item d-flex justify-content-between">
+                            <span class="text-muted">Действует до:</span>
+                            <span>@(selectedClientDetail.SubscriptionEndDate?.ToString("dd.MM.yyyy") ?? "-")</span>
+                        </li>
+                    </ul>
+
+                    <div class="p-3 bg-light rounded border">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <small class="text-muted d-block">Привязанное устройство (Device ID):</small>
+                                <code class="small">@(selectedClientDetail.ActiveDeviceId ?? "Не привязано")</code>
+                            </div>
+                            @if (!string.IsNullOrEmpty(selectedClientDetail.ActiveDeviceId))
+                            {
+                                <button class="btn btn-outline-warning btn-sm" @onclick="ResetDevice">
+                                    <i class="bi bi-phone-vibrate me-1"></i> Сбросить
+                                </button>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary btn-sm" @onclick="CloseModals">Закрыть</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@if (showAssignSubModal)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5);" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title fw-bold">Привязка / Продление абонемента</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
+                </div>
+                <div class="modal-body">
+                    <label class="form-label small">Выберите тарифный план:</label>
+                    <select class="form-select mb-3" @bind="selectedSubTypesId">
+                        <option value="0">-- Выберите тариф --</option>
+                        @foreach (var sub in subTypesList)
+                        {
+                            <option value="@sub.Id">
+                                @sub.Name — @sub.Price TJS (@sub.DurationInDays дней)
+                            </option>
+                        }
+                    </select>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-light btn-sm" @onclick="CloseModals">Отмена</button>
+                    <button class="btn btn-success btn-sm fw-bold" @onclick="AssignSub">Активировать</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // Данные аналитики
+    private int gymLoad;
+    private int todayVisits;
+    private int monthlyNewClients;
+    private List<RecentPassDto> recentPasses = new();
+
+    // Клиенты и Поиск
+    private PagedListDto<ClientListDto>? pagedClients;
+    private string searchTerm = string.Empty;
+    private int currentPage = 1;
+    private const int PageSize = 7;
+    private bool isLoadingClients = true;
+
+    // Состояния модалок
+    private bool showCreateClientModal = false;
+    private bool showDetailModal = false;
+    private bool showAssignSubModal = false;
+    private string modalErrorMessage = string.Empty;
+
+    // Форма нового клиента
+    private string newFirstName = string.Empty;
+    private string newLastName = string.Empty;
+    private string? newMiddleName;
+    private int newAge = 20;
+    private Gender newGender = Gender.Male;
+    private string newLogin = string.Empty;
+    private string newPassword = string.Empty;
+    private string newPhoneNumber = string.Empty;
+    private Guid? selectedTrainerId;
+
+    // Вспомогательные данные для модалок
+    private List<TrainerDto> trainersList = new();
+    private List<SubscriptionTypeDto> subTypesList = new();
+    private ClientDetailDto? selectedClientDetail;
+    private Guid currentClientIdForSub;
+    private int selectedSubTypesId;
+
+    // Фоновый таймер для автообновления
+    private System.Threading.Timer? _autoRefreshTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDashboardData();
+
+        // Запуск таймера обновления каждые 5 секунд (5000 мс)
+        _autoRefreshTimer = new System.Threading.Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await RefreshLiveStats();
+            });
+        }, null, 5000, 5000);
+    }
+
+    private async Task LoadDashboardData()
+    {
+        await RefreshLiveStats();
+        await LoadClients();
+    }
+
+    // Легковесный метод обновления динамических данных без перезагрузки списка клиентов
+    private async Task RefreshLiveStats()
+    {
+        gymLoad = await AnalyticsService.GetCurrentGymLoadAsync();
+        todayVisits = await AnalyticsService.GetTodayVisitsCountAsync();
+        monthlyNewClients = await AnalyticsService.GetMonthlyNewClientsCountAsync();
+        recentPasses = await AnalyticsService.GetRecentPassesAsync(10);
+
+        StateHasChanged();
+    }
+
+    private async Task LoadClients()
+    {
+        isLoadingClients = true;
+        pagedClients = await ClientService.GetClientsAsync(searchTerm, currentPage, PageSize);
+        isLoadingClients = false;
+    }
+
+    private async Task HandleSearch()
+    {
+        currentPage = 1;
+        await LoadClients();
+    }
+
+    private async Task ChangePage(int page)
+    {
+        currentPage = page;
+        await LoadClients();
+    }
+
+    private async Task RefreshPasses()
+    {
+        await RefreshLiveStats();
+    }
+
+    // --- МОДАЛЬНОЕ ОКНО 1: Создание клиента ---
+    private async Task OpenCreateClientModal()
+    {
+        modalErrorMessage = string.Empty;
+        trainersList = await TrainerService.GetAllTrainersAsync();
+        showCreateClientModal = true;
+    }
+
+    private async Task SaveNewClient()
+    {
+        if (string.IsNullOrWhiteSpace(newFirstName) || string.IsNullOrWhiteSpace(newLastName) ||
+            string.IsNullOrWhiteSpace(newLogin) || string.IsNullOrWhiteSpace(newPassword))
+        {
+            modalErrorMessage = "Заполните все обязательные поля (*)";
+            return;
+        }
+
+        try
+        {
+            var dto = new CreateClientDto(
+                newFirstName, newLastName, newMiddleName, newAge, 
+                newGender, newLogin, newPassword, newPhoneNumber, selectedTrainerId
+            );
+
+            await ClientService.RegisterClientAsync(dto);
+            CloseModals();
+            await LoadDashboardData();
+        }
+        catch (Exception ex)
+        {
+            modalErrorMessage = ex.Message;
+        }
+    }
+
+    // --- МОДАЛЬНОЕ ОКНО 2: Детали и Сброс Девайса ---
+    private async Task OpenDetailModal(Guid clientId)
+    {
+        selectedClientDetail = await ClientService.GetClientDetailAsync(clientId);
+        if (selectedClientDetail != null)
+        {
+            showDetailModal = true;
+        }
+    }
+
+    private async Task ResetDevice()
+    {
+        if (selectedClientDetail == null) return;
+
+        bool success = await AuthService.ResetClientDeviceAsync(selectedClientDetail.Id);
+        if (success)
+        {
+            selectedClientDetail = await ClientService.GetClientDetailAsync(selectedClientDetail.Id);
+        }
+    }
+
+    // --- МОДАЛЬНОЕ ОКНО 3: Абонемент ---
+    private async Task OpenAssignSubModal(Guid clientId)
+    {
+        currentClientIdForSub = clientId;
+        subTypesList = await SubscriptionService.GetAllTypesAsync();
+        selectedSubTypesId = 0;
+        showAssignSubModal = true;
+    }
+
+    private async Task AssignSub()
+    {
+        if (selectedSubTypesId <= 0) return;
+
+        await ClientService.AssignSubscriptionAsync(currentClientIdForSub, selectedSubTypesId);
+        CloseModals();
+        await LoadClients();
+    }
+
+    private void CloseModals()
+    {
+        showCreateClientModal = false;
+        showDetailModal = false;
+        showAssignSubModal = false;
+        modalErrorMessage = string.Empty;
+    }
+
+    // Освобождение ресурсов при закрытии страницы
+    public void Dispose()
+    {
+        _autoRefreshTimer?.Dispose();
+    }
+}

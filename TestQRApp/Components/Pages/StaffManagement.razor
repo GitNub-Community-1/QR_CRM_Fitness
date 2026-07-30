@@ -1,0 +1,233 @@
+﻿@page "/staff-management"
+@attribute [Authorize(Roles = "Admin")]
+@inject IStaffService StaffService
+@using Microsoft.AspNetCore.Authorization
+@using TestQRApp.Models.DTOs
+@using TestQRApp.Models.Enums
+@using TestQRApp.Services.interfaces
+@rendermode InteractiveServer
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+
+<div class="container-fluid px-0">
+    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center mb-4 pb-2 border-bottom gap-2">
+        <div>
+            <h2 class="fw-bold text-dark mb-0">Управление Персоналом</h2>
+            <p class="text-muted mb-0">Список администраторов и модераторов системы</p>
+        </div>
+        <button class="btn btn-primary shadow-sm py-2" @onclick="OpenAddModal">
+            <i class="bi bi-person-plus-fill me-2"></i>Добавить сотрудника
+        </button>
+    </div>
+
+    <div class="card shadow-sm border-0 rounded-3">
+        <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th class="ps-4">ФИО Сотрудника</th>
+                        <th>Логин</th>
+                        <th>Роль</th>
+                        <th class="text-end pe-4">Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (StaffList == null)
+                    {
+                        <tr>
+                            <td colspan="4" class="text-center py-4">
+                                <div class="spinner-border text-primary" role="status"></div>
+                            </td>
+                        </tr>
+                    }
+                    else if (!StaffList.Any())
+                    {
+                        <tr>
+                            <td colspan="4" class="text-center py-5 text-muted">Персонал не найден. Добавьте первого сотрудника!</td>
+                        </tr>
+                    }
+                    else
+                    {
+                        @foreach (var staff in StaffList)
+                        {
+                            <tr>
+                                <td class="fw-bold ps-4 text-dark">@staff.FullName</td>
+                                <td><code class="text-secondary">@staff.Login</code></td>
+                                <td>
+                                    @if (staff.Role == StaffRole.Admin)
+                                    {
+                                        <span class="badge bg-danger px-2 py-1">Администратор</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-info text-dark px-2 py-1">Модератор</span>
+                                    }
+                                </td>
+                                <td class="text-end pe-4">
+                                    <button class="btn btn-sm btn-outline-danger shadow-sm" @onclick="() => OpenDeleteModal(staff)" title="Удалить">
+                                        <i class="bi bi-trash"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@if (ShowModal)
+{
+    <div class="modal fade show d-block" style="background: rgba(0,0,0,0.5); z-index: 1050;" role="dialog">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title fw-bold">@ModalTitle</h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModal"></button>
+                </div>
+                
+                <div class="modal-body p-4">
+                    @if (ModalType == "delete")
+                    {
+                        <p class="fs-5 text-center my-2">Вы действительно хотите удалить сотрудника <strong class="text-danger">@SelectedStaff?.FullName</strong>?</p>
+                    }
+                    else if (ModalType == "add")
+                    {
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label small fw-semibold">Имя *</label>
+                                <input type="text" class="form-control" @bind="InputModel.FirstName" placeholder="Иван" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-semibold">Фамилия *</label>
+                                <input type="text" class="form-control" @bind="InputModel.LastName" placeholder="Иванов" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-semibold">Логин *</label>
+                                <input type="text" class="form-control" @bind="InputModel.Login" placeholder="moderator1" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-semibold">Пароль *</label>
+                                <input type="password" class="form-control" @bind="InputModel.Password" placeholder="******" />
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small fw-semibold">Роль в системе</label>
+                                <select class="form-select" @bind="InputModel.Role">
+                                    <option value="@StaffRole.Moderator">Модератор</option>
+                                    <option value="@StaffRole.Admin">Администратор</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrEmpty(ErrorMessage))
+                        {
+                            <div class="alert alert-danger p-2 small mt-3 mb-0">@ErrorMessage</div>
+                        }
+                    }
+                </div>
+
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-secondary" @onclick="CloseModal">Отмена</button>
+                    @if (ModalType == "delete")
+                    {
+                        <button type="button" class="btn btn-danger fw-bold" @onclick="ConfirmDelete">Да, удалить</button>
+                    }
+                    else if (ModalType == "add")
+                    {
+                        <button type="button" class="btn btn-primary fw-bold" @onclick="SaveStaff">Зарегистрировать</button>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<StaffDto>? StaffList { get; set; }
+    private bool ShowModal { get; set; }
+    private string ModalTitle { get; set; } = "";
+    private string ModalType { get; set; } = "";
+    private string ErrorMessage { get; set; } = "";
+    private StaffDto? SelectedStaff { get; set; }
+
+    private StaffFormModel InputModel { get; set; } = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadStaff();
+    }
+
+    private async Task LoadStaff()
+    {
+        StaffList = await StaffService.GetAllStaffAsync();
+    }
+
+    private void OpenAddModal()
+    {
+        ModalType = "add";
+        ModalTitle = "Регистрация сотрудника";
+        InputModel = new StaffFormModel();
+        ErrorMessage = string.Empty;
+        ShowModal = true;
+    }
+
+    private void OpenDeleteModal(StaffDto staff)
+    {
+        ModalType = "delete";
+        ModalTitle = "Подтверждение удаления";
+        SelectedStaff = staff;
+        ShowModal = true;
+    }
+
+    private void CloseModal()
+    {
+        ShowModal = false;
+        SelectedStaff = null;
+        ErrorMessage = string.Empty;
+    }
+
+    private async Task SaveStaff()
+    {
+        if (string.IsNullOrWhiteSpace(InputModel.FirstName) || 
+            string.IsNullOrWhiteSpace(InputModel.LastName) ||
+            string.IsNullOrWhiteSpace(InputModel.Login) ||
+            string.IsNullOrWhiteSpace(InputModel.Password))
+        {
+            ErrorMessage = "Заполните все обязательные поля!";
+            return;
+        }
+
+        var dto = new CreateStaffDto(
+            InputModel.FirstName, 
+            InputModel.LastName, 
+            InputModel.Login, 
+            InputModel.Password, 
+            InputModel.Role
+        );
+
+        await StaffService.CreateStaffAsync(dto);
+
+        CloseModal();
+        await LoadStaff();
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (SelectedStaff != null)
+        {
+            await StaffService.DeleteStaffAsync(SelectedStaff.Id);
+        }
+        CloseModal();
+        await LoadStaff();
+    }
+
+    private class StaffFormModel
+    {
+        public string FirstName { get; set; } = "";
+        public string LastName { get; set; } = "";
+        public string Login { get; set; } = "";
+        public string Password { get; set; } = "";
+        public StaffRole Role { get; set; } = StaffRole.Moderator;
+    }
+}
